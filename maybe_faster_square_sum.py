@@ -16,7 +16,7 @@ import random
 # randomly perturb the solution until a hamiltonian cycle
 # for N+1 is found.  then repeat.
 #
-# this code has been run to N=25,000 in 20 minutes on a modern
+# this code has been run to N=28,000 in 30 minutes on a modern
 # desktop CPU.
 #
 # further work:
@@ -216,7 +216,7 @@ class square_sum:
 
 
 #
-# and now, to 3,000 with it:
+# and now, to 28,000 with it:
 #
 ss = square_sum()
 iterations = 0
@@ -224,7 +224,7 @@ while True:
 
     solution = ss.canonical()
 
-    if len(solution) >= 300000:
+    if len(solution) >= 28000:
         print(len(solution), iterations, solution)
         print("Well, I'm quite bored.")
         break
