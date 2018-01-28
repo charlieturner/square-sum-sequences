@@ -1,12 +1,14 @@
 import random
+import datetime
+import array
+from math import ceil, floor, sqrt
 
 #
-# this class takes a previous hamiltonian cycle (length N) for
-# the square_sum problem and helps make a new cycle of length N + 1
+# this code takes a previous hamiltonian cycle (length N) for
+# the square-sum problem and makes a new cycle of length N + 1
 #
 # it is utterly bereft of any theoretical support; the author of
-# this code has no idea why it works.  though there is likely
-# some connection to random graph theory in here somewhere.
+# this code has no idea why it works.
 #
 # this code is in the public domain.
 #
@@ -16,20 +18,80 @@ import random
 # randomly perturb the solution until a hamiltonian cycle
 # for N+1 is found.  then repeat.
 #
-# this code has been run to N=28,000 in 30 minutes on a modern
-# desktop CPU.
+# while this code has been run to N in excess of 100,000,
+# the more significant observation is that the amount of work
+# -- the number of perturbations -- done per step appears
+# to be independent of the size of the solution.
 #
-# further work:
-#
-# the number of perturbations done to find a new hamiltonian cycle
-# appears to be fairly constant -- perhaps O(1)?
-#
-# are there perturbations that would do a more efficient job?
-#
-# is there a more clever way of choosing the cut-points
-# for the reversals?
-#
+
 class square_sum:
+
+    #
+    # constant-memory edge list
+    #
+    class square_edge:
+
+        def __init__(self, v, N):
+            self.define(v, N)
+
+        def __getitem__(self, k):
+
+            #
+            # end-of-list for generators
+            #
+            if k >= self.limit:
+                raise IndexError
+
+            #
+            # skip the hole
+            #
+            if k >= self.hole:
+                k += 1
+
+            #
+            # the k'th edge is (n0 + k)**2 - vertex
+            #
+            n = self.n0 + k
+            return n*n - self.vertex
+
+        def __len__(self):
+            return self.limit
+
+        def __repr__(self):
+            #
+            # a debugging convenience
+            #
+            return str([x for x in self])
+
+        def define(self, v, N):
+
+            assert N >= 1 and v >= 1 and v <= N
+
+            #
+            # the vertex number
+            #
+            self.vertex = v
+
+            #
+            # the next square after the vertex number is n0
+            #
+            self.n0 = int(ceil(sqrt(self.vertex + 1)))
+
+            #
+            # how many squares
+            #
+            L = N if self.vertex < N else N - 1
+            self.limit = int(floor(sqrt(self.vertex + L) - self.n0)) + 1
+
+            #
+            # remove the 'v + v == square' hole
+            #
+            k = int(round(sqrt(2*self.vertex)))
+            if k*k == 2*self.vertex:
+                self.hole = k - self.n0
+                self.limit -= 1
+            else:
+                self.hole = self.limit
 
     #
     # the argument must be a hamiltonian path
@@ -53,41 +115,31 @@ class square_sum:
             return S
 
         #
-        # initial edges
+        # edges
         #
-        def mk_initial_edges(S, N):
-            return { vertex: [ o for o in range(1, N + 1)
-                    if o != vertex and vertex + o in self.squares ]
-                        for vertex in range(1, N + 1) }
+        def mk_edges(S, N):
+            return { vertex: square_sum.square_edge(vertex, N) for vertex in range(1, N + 1) }
 
         #
-        # update edges from previous step
+        # force construction of new index
         #
-        def mk_update_edges(squares, previous_edges, N):
-            new_edges = {}
-            new_vertices = []
-            for v, e in iter(previous_edges.items()):
-                if v + N in squares:
-                    new_edges[v] = e + [ N ]
-                    new_vertices += [ v ]
-                else:
-                    new_edges[v] = e
-            new_edges[N] = new_vertices
-            return new_edges
+        self.index = None
+        self.iterations = 0
 
         #
         # if no previous state, start with the first known cycle
         #
         if previous is None:
+
             #
             # the first hamiltonian cycle is length 32;  this result is due to Landon Kryger, which
             # he published in a comment to https://www.youtube.com/watch?v=7_ph5djCCnM
             #
-            self.state = [1, 8, 28, 21, 4, 32, 17, 19, 30, 6, 3, 13, 12, 24,
-                    25, 11, 5, 31, 18, 7, 29, 20, 16, 9, 27, 22, 14, 2, 23, 26, 10, 15]
+            self.state = array.array('I', [1, 8, 28, 21, 4, 32, 17, 19, 30, 6, 3, 13, 12, 24,
+                    25, 11, 5, 31, 18, 7, 29, 20, 16, 9, 27, 22, 14, 2, 23, 26, 10, 15])
             N = len(self.state)
             self.squares = mk_squares(N)
-            self.edges = mk_initial_edges(self.squares, N)
+            self.edges = mk_edges(self.squares, N)
             return
 
         #
@@ -95,7 +147,7 @@ class square_sum:
         #
         N = len(previous.state) + 1
         self.squares = mk_squares(N)
-        self.edges = mk_update_edges(self.squares, previous.edges, N)
+        self.edges = mk_edges(self.squares, N)
 
         #
         # now rotate and augment previous hamiltonian cycle to
@@ -103,72 +155,124 @@ class square_sum:
         #
         k = previous.state.index(self.random_vertex(N))
 
-        self.state = [ N ]
-        self.state += previous.state[k:]
-        self.state += previous.state[0:k]
+        self.state = array.array('I')
+        self.state.append(N)
+        self.state.extend(previous.state[k:])
+        self.state.extend(previous.state[0:k])
+
+    def __len__(self):
+        return len(self.state)
 
     #
     # given a "from" vertex, return a random "to"
-    # vertex such that from + to is a square
+    # vertex such that
+    #
+    #    from_vertex + to_vertex == square
     #
     def random_vertex(self, from_vertex):
-        e = self.edges[from_vertex]
-        return e[random.randrange(len(e))]
+        E = self.edges[from_vertex]
+        to_vertex = E[random.randrange(len(E))]
+        return to_vertex
 
     #
     # return position of vertex in the current state
     #
     def vertex_index(self, vertex):
-        return self.state.index(vertex)
+        #
+        # if needed, build new index
+        #
+        if self.index is None:
+            self.index = { self.state[i]: i for i in range(len(self.state)) }
+
+        #
+        # O(1) instead of O(n)
+        #
+        return self.index[vertex]
+
+    def right_reverse(self, at):
+        #
+        # reverse of [at+1:] is possible because the caller has proven that:
+        #
+        #    state[at] + state[-1] == square
+        #
+        a = self.state[at+1:]
+        a.reverse()
+        self.state = self.state[0:at+1]
+        self.state.extend(a)
+
+        #
+        # update index
+        #
+        for i in range(at+1, len(self.state)):
+            self.index[self.state[i]] = i;
+
+    def left_reverse(self, at):
+        #
+        # reverse of [0:at] is possible because the caller has proven that:
+        #
+        #    state[0] + state[at] == square
+        #
+        a = self.state[0:at]
+        a.reverse()
+        a.extend(self.state[at:])
+        self.state = a
+
+        #
+        # update index
+        #
+        for i in range(at):
+            self.index[self.state[i]] = i;
 
     #
     # self.state is always a solution;  this method randomly perturbs
     # it into another solution
     #
-    def step(self):
+    def perturb(self):
 
-        def reverse(self):
-            #
-            # end-to-end reversal of the path
-            #
-            self.state = [ x for x in reversed(self.state) ]
-
-        def swap(self, index):
-            #
-            # swap the first vertex with a random vertex
-            #
-            a = self.state[0:index]
-            b = self.state[index:]
-            self.state = [ x for x in reversed(a) ] + b
+        self.iterations += 1
 
         #
-        # be a bit clever about where to swap:  if one exists that
-        # can create a cycle, actually do it now
+        # if we have this situation:
+        #
+        #    A ... B C ... D
+        #
+        # where A + C and B + D are square, we can then
+        # reverse A ... B to get:
+        #
+        #    B ... A C ... D
+        #
+        # which is a hamiltonian cycle
         #
         for q in self.edges[self.state[0]]:
             k = self.vertex_index(q)
             if self.state[k - 1] + self.state[-1] in self.squares:
-                swap(self, k)
+                self.left_reverse(k)
                 return
 
         #
-        # choose either reversal or front-swap
-        #
-        # this could probably be generalized to any interior
-        # sequence, but these two seem to work well enough.
+        # reverse either end at random
         #
         if random.random() < 0.5:
             #
-            # end-to-end flip is still a path
+            # when given
             #
-            reverse(self)
+            #    A ... B X ... D
+            #
+            # where B + D is square, then reverse X ... D
+            # and we get
+            #
+            #    A ... B D ... X
+            #
+            # which is also a solution
+            #
+            to = self.random_vertex(self.state[-1])
+            self.right_reverse(self.vertex_index(to))
         else:
             #
-            # randomly swap a front-section
-	    #
+            # the left/right mirror image of the above
+            #
             to = self.random_vertex(self.state[0])
-            to_index = self.vertex_index(to)
-            swap(self, to_index)
+            self.left_reverse(self.vertex_index(to))
 
     #
     # the canonical representation of cycle starts with "1"
@@ -179,9 +283,12 @@ class square_sum:
 
         assert self.is_cycle
 
-        k = self.state.index(1)        # <- the "1"
+        one = self.vertex_index(1)        # <- the "1"
 
-        return self.state[k:] + self.state[0:k]
+        #
+        # rotate the one to be first
+        #
+        return self.state[one:] + self.state[0:one]
 
     @property
     def is_path(self):
@@ -206,7 +313,6 @@ class square_sum:
 
         return True
 
-
     #
     # given it is a path, is the current state a hamiltonian cycle?
     #
@@ -216,32 +322,28 @@ class square_sum:
 
 
 #
-# and now, to 28,000 with it:
+# the grind begins
 #
+def status_report(ss):
+    solution = ss.canonical()
+    print(datetime.datetime.now(), len(solution), ss.iterations, solution)
+
 ss = square_sum()
-iterations = 0
 while True:
 
-    solution = ss.canonical()
+    N = len(ss)
 
-    if len(solution) >= 28000:
-        print(len(solution), iterations, solution)
-        print("Well, I'm quite bored.")
+    if N >= 300000:
+        status_report(ss)
         break
 
-    if (len(solution) % 256) == 32:
-        print(len(solution), iterations, solution)
+    if (N % 256) == 32:
+        status_report(ss)
 
     ss = square_sum(ss)
-    iterations = 0
     for i in range(10000):
         if ss.is_cycle:
             break
-        ss.step()
-        iterations += 1
+        ss.perturb()
 
-    if not ss.is_cycle:
-        print('Oops.')
-        break
-
-	
+    assert ss.is_cycle
